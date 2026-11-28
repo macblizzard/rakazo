@@ -280,6 +280,7 @@ function TicketDialog({
   const commentsQuery = useQuery(commentsOptions);
   const comments = commentsQuery.data ?? [];
   const [body, setBody] = useState("");
+  const unsavedInput = textChanged || body.trim() !== "";
   const saving = useSave({
     save: async (_input, rpc) => {
       if (ticket)
@@ -337,6 +338,7 @@ function TicketDialog({
   return (
     <Dialog
       open
+      disablePointerDismissal={unsavedInput}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}

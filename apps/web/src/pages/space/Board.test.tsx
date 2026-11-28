@@ -48,13 +48,22 @@ vi.mock("@rakazo/ui-web", async (importOriginal) => {
     Button: (props: ComponentProps<"button">) => <button {...props} />,
     Dialog: ({
       children,
+      disablePointerDismissal,
       onOpenChange,
     }: {
       children?: ReactNode;
+      disablePointerDismissal?: boolean;
       onOpenChange: (open: boolean) => void;
     }) => (
       <div>
         {children}
+        <button
+          type="button"
+          aria-label="Dialog backdrop"
+          onClick={() => {
+            if (!disablePointerDismissal) onOpenChange(false);
+          }}
+        />
         <button type="button" aria-label="Close" onClick={() => onOpenChange(false)} />
       </div>
     ),
@@ -542,7 +551,7 @@ it("reopens with cached tickets and refreshes them in the background", async () 
   }
 });
 
-async function openTicketAndComment(page: { container: HTMLElement }, text: string) {
+async function openTicketAndTypeComment(page: { container: HTMLElement }, text: string) {
   await act(async () =>
     (
       page.container.querySelector('[data-testid="board-card-ticket-1"]') as HTMLButtonElement
@@ -554,6 +563,11 @@ async function openTicketAndComment(page: { container: HTMLElement }, text: stri
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, text);
     box.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  return box;
+}
+
+async function openTicketAndComment(page: { container: HTMLElement }, text: string) {
+  const box = await openTicketAndTypeComment(page, text);
   const form = box.closest("form")!;
   await act(async () =>
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
@@ -644,6 +658,47 @@ async function openNewTicket(page: { container: HTMLElement }, title: string) {
       ),
   };
 }
+
+it("keeps an unsaved title when the new ticket dialog backdrop is clicked", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  api.bots.list.mockResolvedValue([bot("bot-1", "Helper")]);
+  api.tickets.list.mockResolvedValue({ tickets: [] });
+  const page = await renderBoard();
+  try {
+    await openNewTicket(page, "Launch");
+    await act(async () =>
+      page.container.querySelector<HTMLButtonElement>('[aria-label="Dialog backdrop"]')!.click(),
+    );
+    expect(page.container.querySelector<HTMLInputElement>('input[id$="-title"]')?.value).toBe(
+      "Launch",
+    );
+  } finally {
+    await page.cleanup();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("keeps an unsaved comment when the existing ticket dialog backdrop is clicked", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  api.bots.list.mockResolvedValue([bot("bot-1", "Helper")]);
+  api.tickets.list.mockResolvedValue({
+    tickets: [ticket("Ship", "ticket-1", "todo", "RAK-1", "bot-1")],
+  });
+  api.tickets.comments.mockReset().mockResolvedValue([]);
+  const page = await renderBoard();
+  try {
+    await openTicketAndTypeComment(page, "A draft comment");
+    await act(async () =>
+      page.container.querySelector<HTMLButtonElement>('[aria-label="Dialog backdrop"]')!.click(),
+    );
+    expect(
+      page.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')?.value,
+    ).toBe("A draft comment");
+  } finally {
+    await page.cleanup();
+    vi.unstubAllGlobals();
+  }
+});
 
 it("creates one ticket when submitted twice, holds the form meanwhile, then lists it and closes", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
